@@ -1,0 +1,223 @@
+{
+  "name": "AGENT-TRADING212",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "trading212-agent",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-trigger-01",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "condition": "contains",
+              "value1": "{{ $json.message }}",
+              "value2": "buy"
+            },
+            {
+              "condition": "contains",
+              "value1": "{{ $json.message }}",
+              "value2": "sell"
+            },
+            {
+              "condition": "contains",
+              "value1": "{{ $json.message }}",
+              "value2": "balance"
+            }
+          ]
+        }
+      },
+      "id": "switch-action-02",
+      "name": "Switch Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "connections": {
+        "webhook-trigger-01": [
+          [
+            {
+              "node": "Switch Action",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://live.trading212.com/api/v0/account/info",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {
+            "key": "Authorization",
+            "value": "Bearer {{ $env.TRADING212_API_KEY }}"
+          }
+        }
+      },
+      "id": "get-balance-03",
+      "name": "Get Balance",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 150],
+      "connections": {
+        "switch-action-02": [
+          [
+            {
+              "node": "Get Balance",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://live.trading212.com/api/v0/portfolio",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {
+            "key": "Authorization",
+            "value": "Bearer {{ $env.TRADING212_API_KEY }}"
+          }
+        }
+      },
+      "id": "get-holdings-04",
+      "name": "Get Holdings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 300],
+      "connections": {
+        "switch-action-02": [
+          [
+            {
+              "node": "Get Holdings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://live.trading212.com/api/v0/equity/orders/create",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {
+            "key": "Authorization",
+            "value": "Bearer {{ $env.TRADING212_API_KEY }}"
+          }
+        },
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": "{\n  \"ticker\": \"{{ $json.symbol }}\",\n  \"quantity\": {{ $json.quantity }},\n  \"side\": \"{{ $json.action === 'buy' ? 'BUY' : 'SELL' }}\",\n  \"type\": \"MARKET\"\n}"
+      },
+      "id": "place-trade-05",
+      "name": "Place Trade",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 450],
+      "connections": {
+        "switch-action-02": [
+          [
+            {
+              "node": "Place Trade",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format response based on action\nconst response = $json;\nconst message = $json.message;\n\nlet result = '';\n\nif (message.includes('balance')) {\n  result = `\nAccount Balance:\nCash: £${response.cash}\nInvested: £${response.investedAmount}\nTotal: £${response.total}\n  `;\n} else if (message.includes('holdings')) {\n  result = `\nYour Holdings:\n${response.portfolio.map(h => `${h.ticker}: ${h.quantity} shares @ £${h.price}`).join('\\n')}\n  `;\n} else if (message.includes('buy') || message.includes('sell')) {\n  result = `\nOrder Executed:\nSymbol: ${response.ticker}\nAction: ${response.side}\nQuantity: ${response.quantity}\nPrice: £${response.price}\nTotal: £${response.total}\nOrder ID: ${response.orderId}\n  `;\n}\n\nreturn {\n  agent: 'AGENT-TRADING212',\n  agent_response: result,\n  action: message.includes('buy') ? 'BUY' : (message.includes('sell') ? 'SELL' : 'INFO'),\n  user_id: $json.user_id,\n  success: true\n};"
+      },
+      "id": "format-response-06",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300],
+      "connections": {
+        "get-balance-03": [
+          [
+            {
+              "node": "Format Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ],
+        "get-holdings-04": [
+          [
+            {
+              "node": "Format Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ],
+        "place-trade-05": [
+          [
+            {
+              "node": "Format Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "host": "{{ $env.DB_HOST }}",
+        "port": 5432,
+        "database": "{{ $env.DB_NAME }}",
+        "user": "{{ $env.DB_USER }}",
+        "password": "={{ $env.DB_PASSWORD }}",
+        "query": "INSERT INTO trading_logs (user_id, action, symbol, quantity, price, status, created_at) VALUES ({{ $json.user_id }}, '{{ $json.action }}', '{{ $json.symbol }}', {{ $json.quantity }}, {{ $json.price }}, 'success', NOW())"
+      },
+      "id": "log-trade-07",
+      "name": "Log Trade",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 4.3,
+      "position": [850, 450],
+      "connections": {
+        "format-response-06": [
+          [
+            {
+              "node": "Log Trade",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  ],
+  "connections": {},
+  "active": true,
+  "settings": {
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "tags": [
+    {"id": "trading", "name": "Trading"},
+    {"id": "brokerage", "name": "Brokerage"}
+  ]
+}

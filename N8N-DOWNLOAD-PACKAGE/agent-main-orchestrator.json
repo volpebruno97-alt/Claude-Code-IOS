@@ -1,0 +1,145 @@
+{
+  "name": "AGENT-MAIN-ORCHESTRATOR",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "main-orchestrator",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger-01",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Analyze message and determine required agents\nconst message = $json.message.toLowerCase();\nconst user = $json.user_id;\nconst username = $json.username;\n\nlet agents = [];\nlet intent = 'unknown';\n\n// Trading intents\nif (message.includes('buy') || message.includes('sell') || message.includes('trade')) {\n  agents.push('AGENT-TRADING212');\n  intent = 'trading';\n}\n\n// Analysis intents\nif (message.includes('analyze') || message.includes('predict') || message.includes('rsi') || message.includes('ema')) {\n  agents.push('AGENT-TECHNICAL-ANALYSIS');\n  intent = 'analysis';\n}\n\n// Portfolio intents\nif (message.includes('portfolio') || message.includes('holdings') || message.includes('allocation')) {\n  agents.push('AGENT-PORTFOLIO-MANAGER');\n  intent = 'portfolio';\n}\n\n// Market data intents\nif (message.includes('price') || message.includes('news') || message.includes('market')) {\n  agents.push('AGENT-MARKET-DATA');\n  intent = 'market';\n}\n\n// Research intents\nif (message.includes('research') || message.includes('fundamentals') || message.includes('earnings')) {\n  agents.push('AGENT-RESEARCH');\n  intent = 'research';\n}\n\nreturn {\n  user_id: user,\n  username: username,\n  message: $json.message,\n  intent: intent,\n  agents_needed: agents,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "analyze-intent-02",
+      "name": "Analyze Intent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "connections": {
+        "webhook-trigger-01": [
+          [
+            {
+              "node": "Analyze Intent",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5679/hook/{{ $json.agents_needed[0] }}",
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": "{{ JSON.stringify($json) }}"
+      },
+      "id": "route-to-agents-03",
+      "name": "Route to Agents",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 300],
+      "connections": {
+        "analyze-intent-02": [
+          [
+            {
+              "node": "Route to Agents",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Wait for agent responses and synthesize\nconst responses = $json;\n\nconst synthesized = `\nBased on analysis:\n\n${responses.map(r => r.agent_response).join('\\n\\n')}\n\nRecommendation: ${responses[0].recommendation || 'See details above'}\n`;\n\nreturn {\n  response: synthesized,\n  agents_used: responses.map(r => r.agent),\n  user_id: $json[0].user_id\n};"
+      },
+      "id": "synthesize-response-04",
+      "name": "Synthesize Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300],
+      "connections": {
+        "route-to-agents-03": [
+          [
+            {
+              "node": "Synthesize Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5679/hook/telegram-gateway",
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": "{{ JSON.stringify($json) }}"
+      },
+      "id": "send-to-telegram-05",
+      "name": "Send to Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1050, 300],
+      "connections": {
+        "synthesize-response-04": [
+          [
+            {
+              "node": "Send to Telegram",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "host": "{{ $env.DB_HOST }}",
+        "port": 5432,
+        "database": "{{ $env.DB_NAME }}",
+        "user": "{{ $env.DB_USER }}",
+        "password": "={{ $env.DB_PASSWORD }}",
+        "query": "INSERT INTO orchestrator_logs (user_id, intent, agents_used, created_at) VALUES ({{ $json.user_id }}, '{{ $json.intent }}', '{{ JSON.stringify($json.agents_used) }}', NOW())"
+      },
+      "id": "log-orchestration-06",
+      "name": "Log Orchestration",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 4.3,
+      "position": [1050, 450],
+      "connections": {
+        "send-to-telegram-05": [
+          [
+            {
+              "node": "Log Orchestration",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  ],
+  "connections": {},
+  "active": true,
+  "settings": {
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "tags": [
+    {"id": "core", "name": "Core"},
+    {"id": "orchestrator", "name": "Orchestrator"}
+  ]
+}
