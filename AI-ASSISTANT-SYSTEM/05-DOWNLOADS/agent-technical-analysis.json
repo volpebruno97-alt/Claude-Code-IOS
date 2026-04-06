@@ -1,0 +1,153 @@
+{
+  "name": "AGENT-TECHNICAL-ANALYSIS",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "technical-analysis-agent",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-trigger-01",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={{ $json.symbol }}&apikey={{ $env.ALPHA_VANTAGE_KEY }}&outputsize=full"
+      },
+      "id": "fetch-price-data-02",
+      "name": "Fetch Price Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300],
+      "connections": {
+        "webhook-trigger-01": [
+          [
+            {
+              "node": "Fetch Price Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5680/api/calculate-indicators",
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": "{\n  \"symbol\": \"{{ $json.symbol }}\",\n  \"prices\": {{ JSON.stringify($json.prices) }},\n  \"indicators\": [\"RSI\", \"EMA\", \"MACD\", \"BOLLINGER\"]\n}"
+      },
+      "id": "calculate-indicators-03",
+      "name": "Calculate Indicators",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 300],
+      "connections": {
+        "fetch-price-data-02": [
+          [
+            {
+              "node": "Calculate Indicators",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {
+            "key": "x-api-key",
+            "value": "={{ $env.ANTHROPIC_API_KEY }}"
+          }
+        },
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": "{\n  \"model\": \"claude-opus-4-1\",\n  \"max_tokens\": 1024,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Analyze these technical indicators and provide a price prediction:\\n\\nSymbol: {{ $json.symbol }}\\nCurrent Price: {{ $json.current_price }}\\nRSI: {{ $json.rsi }}\\nEMA20: {{ $json.ema20 }}\\nEMA50: {{ $json.ema50 }}\\nMACD: {{ $json.macd }}\\n\\nProvide: Signal (BUY/SELL/HOLD), Predicted Price, Confidence %, Timeframe\"\n    }\n  ]\n}"
+      },
+      "id": "claude-analysis-04",
+      "name": "Claude Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 300],
+      "connections": {
+        "calculate-indicators-03": [
+          [
+            {
+              "node": "Claude Analysis",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format technical analysis response\nconst analysis = $json.content[0].text;\nconst indicators = $json.indicators;\n\nconst result = `\n📊 TECHNICAL ANALYSIS - ${$json.symbol}\n\nCurrent Price: £${$json.current_price}\n\nIndicators:\n• RSI(14): ${indicators.rsi} ${indicators.rsi > 70 ? '⚠️ OVERBOUGHT' : (indicators.rsi < 30 ? '⚠️ OVERSOLD' : '✓ NEUTRAL')}\n• EMA(20): £${indicators.ema20} ${indicators.ema20 > $json.current_price ? '📈 Bullish' : '📉 Bearish'}\n• EMA(50): £${indicators.ema50}\n• MACD: ${indicators.macd}\n\nAI Analysis:\n${analysis}\n`;\n\nreturn {\n  agent: 'AGENT-TECHNICAL-ANALYSIS',\n  agent_response: result,\n  symbol: $json.symbol,\n  indicators: indicators,\n  analysis: analysis,\n  user_id: $json.user_id\n};"
+      },
+      "id": "format-analysis-05",
+      "name": "Format Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300],
+      "connections": {
+        "claude-analysis-04": [
+          [
+            {
+              "node": "Format Analysis",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "host": "{{ $env.DB_HOST }}",
+        "port": 5432,
+        "database": "{{ $env.DB_NAME }}",
+        "user": "{{ $env.DB_USER }}",
+        "password": "={{ $env.DB_PASSWORD }}",
+        "query": "INSERT INTO technical_analysis (symbol, rsi, ema20, ema50, macd, prediction, confidence, created_at) VALUES ('{{ $json.symbol }}', {{ $json.indicators.rsi }}, {{ $json.indicators.ema20 }}, {{ $json.indicators.ema50 }}, '{{ $json.indicators.macd }}', '{{ $json.analysis }}', 75, NOW())"
+      },
+      "id": "save-analysis-06",
+      "name": "Save Analysis",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 4.3,
+      "position": [1050, 450],
+      "connections": {
+        "format-analysis-05": [
+          [
+            {
+              "node": "Save Analysis",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  ],
+  "connections": {},
+  "active": true,
+  "settings": {
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "tags": [
+    {"id": "analysis", "name": "Analysis"},
+    {"id": "technical", "name": "Technical"}
+  ]
+}
