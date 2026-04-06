@@ -1,0 +1,420 @@
+{
+  "name": "COMPLETE-AI-AGENT-SYSTEM",
+  "description": "All-in-one consolidated AI agent system with Telegram gateway, orchestrator, trading, technical analysis, market data, and portfolio management",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [100, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const message = $json.text;\nconst userId = $json.from.id;\nconst chatId = $json.chat_id;\nconst username = $json.from.username || 'anonymous';\n\nreturn {\n  user_id: userId,\n  chat_id: chatId,\n  username: username,\n  message: message,\n  message_type: message.startsWith('/') ? 'command' : 'text',\n  timestamp: new Date().toISOString(),\n  first_name: $json.from.first_name\n};"
+      },
+      "id": "parse-message",
+      "name": "Parse Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [300, 100],
+      "connections": {
+        "telegram-trigger": [
+          [{"node": "Parse Message", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const message = $json.message.toLowerCase();\nconst user = $json.user_id;\nconst username = $json.username;\n\nlet agents = [];\nlet intent = 'unknown';\n\nif (message.includes('buy') || message.includes('sell') || message.includes('trade')) {\n  agents.push('TRADING212');\n  intent = 'trading';\n}\nif (message.includes('analyze') || message.includes('predict') || message.includes('rsi')) {\n  agents.push('TECHNICAL-ANALYSIS');\n  intent = 'analysis';\n}\nif (message.includes('portfolio') || message.includes('holdings')) {\n  agents.push('PORTFOLIO-MANAGER');\n  intent = 'portfolio';\n}\nif (message.includes('price') || message.includes('news') || message.includes('market')) {\n  agents.push('MARKET-DATA');\n  intent = 'market';\n}\n\nreturn {\n  user_id: user,\n  username: username,\n  message: $json.message,\n  intent: intent,\n  agents_needed: agents,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "analyze-intent",
+      "name": "Analyze Intent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 100],
+      "connections": {
+        "parse-message": [
+          [{"node": "Analyze Intent", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "condition": "contains",
+              "value1": "{{ $json.intent }}",
+              "value2": "trading"
+            },
+            {
+              "condition": "contains",
+              "value1": "{{ $json.intent }}",
+              "value2": "analysis"
+            },
+            {
+              "condition": "contains",
+              "value1": "{{ $json.intent }}",
+              "value2": "portfolio"
+            },
+            {
+              "condition": "contains",
+              "value1": "{{ $json.intent }}",
+              "value2": "market"
+            }
+          ]
+        }
+      },
+      "id": "route-by-intent",
+      "name": "Route by Intent",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [700, 100],
+      "connections": {
+        "analyze-intent": [
+          [{"node": "Route by Intent", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://live.trading212.com/api/v0/account/info",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {"key": "Authorization", "value": "Bearer {{ $env.TRADING212_API_KEY }}"}
+        }
+      },
+      "id": "trading-get-balance",
+      "name": "Get Balance",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 50],
+      "connections": {
+        "route-by-intent": [
+          [{"node": "Get Balance", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://live.trading212.com/api/v0/portfolio",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {"key": "Authorization", "value": "Bearer {{ $env.TRADING212_API_KEY }}"}
+        }
+      },
+      "id": "trading-get-holdings",
+      "name": "Get Holdings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 150],
+      "connections": {
+        "route-by-intent": [
+          [{"node": "Get Holdings", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://live.trading212.com/api/v0/equity/orders/create",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {"key": "Authorization", "value": "Bearer {{ $env.TRADING212_API_KEY }}"}
+        },
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": "{\n  \"ticker\": \"{{ $json.symbol }}\",\n  \"quantity\": {{ $json.quantity }},\n  \"side\": \"{{ $json.action === 'buy' ? 'BUY' : 'SELL' }}\",\n  \"type\": \"MARKET\"\n}"
+      },
+      "id": "trading-place-order",
+      "name": "Place Trade",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 250],
+      "connections": {
+        "route-by-intent": [
+          [{"node": "Place Trade", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={{ $json.symbol }}&apikey={{ $env.ALPHA_VANTAGE_KEY }}&outputsize=full"
+      },
+      "id": "analysis-fetch-data",
+      "name": "Fetch Price Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 350],
+      "connections": {
+        "route-by-intent": [
+          [{"node": "Fetch Price Data", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5680/api/calculate-indicators",
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": "{\n  \"symbol\": \"{{ $json.symbol }}\",\n  \"prices\": {{ JSON.stringify($json.prices) }},\n  \"indicators\": [\"RSI\", \"EMA\", \"MACD\", \"BOLLINGER\"]\n}"
+      },
+      "id": "analysis-calculate",
+      "name": "Calculate Indicators",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1100, 350],
+      "connections": {
+        "analysis-fetch-data": [
+          [{"node": "Calculate Indicators", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {"key": "x-api-key", "value": "={{ $env.ANTHROPIC_API_KEY }}"}
+        },
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": "{\n  \"model\": \"claude-opus-4-1\",\n  \"max_tokens\": 1024,\n  \"messages\": [{\n    \"role\": \"user\",\n    \"content\": \"Analyze these technical indicators: RSI: {{ $json.rsi }}, EMA20: {{ $json.ema20 }}, MACD: {{ $json.macd }}. Provide signal and price prediction.\"\n  }]\n}"
+      },
+      "id": "analysis-claude",
+      "name": "Claude Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1300, 350],
+      "connections": {
+        "analysis-calculate": [
+          [{"node": "Claude Analysis", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={{ $json.symbol }}&apikey={{ $env.ALPHA_VANTAGE_KEY }}"
+      },
+      "id": "market-get-price",
+      "name": "Get Current Price",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 500],
+      "connections": {
+        "route-by-intent": [
+          [{"node": "Get Current Price", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://finnhub.io/api/v1/quote?symbol={{ $json.symbol }}&token={{ $env.FINNHUB_API_KEY }}"
+      },
+      "id": "market-get-stats",
+      "name": "Get Market Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 600],
+      "connections": {
+        "route-by-intent": [
+          [{"node": "Get Market Data", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://finnhub.io/api/v1/company-news?symbol={{ $json.symbol }}&min_id=0&token={{ $env.FINNHUB_API_KEY }}"
+      },
+      "id": "market-get-news",
+      "name": "Get News",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 700],
+      "connections": {
+        "route-by-intent": [
+          [{"node": "Get News", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://live.trading212.com/api/v0/portfolio",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {"key": "Authorization", "value": "Bearer {{ $env.TRADING212_API_KEY }}"}
+        }
+      },
+      "id": "portfolio-get-holdings",
+      "name": "Portfolio Get Holdings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 800],
+      "connections": {
+        "route-by-intent": [
+          [{"node": "Portfolio Get Holdings", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://live.trading212.com/api/v0/account/info",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {"key": "Authorization", "value": "Bearer {{ $env.TRADING212_API_KEY }}"}
+        }
+      },
+      "id": "portfolio-get-account",
+      "name": "Get Account Info",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 900],
+      "connections": {
+        "route-by-intent": [
+          [{"node": "Get Account Info", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const holdings = $json[0].portfolio || [];\nconst account = $json[1];\nconst total = account.total || 0;\nconst cash = account.cash || 0;\nconst invested = total - cash;\nconst stocks = holdings.length > 0 ? (invested / total) : 0;\nconst riskScore = (stocks * 8 + (holdings.length / 10) * 2).toFixed(1);\nconst topHoldings = holdings\n  .sort((a, b) => b.value - a.value)\n  .slice(0, 5)\n  .map(h => `${h.ticker}: £${h.value.toFixed(2)}`)\n  .join('\\n');\n\nreturn {\n  agent: 'PORTFOLIO',\n  total_value: total,\n  invested_value: invested,\n  cash: cash,\n  risk_score: riskScore,\n  holdings_count: holdings.length,\n  user_id: $json[0].user_id\n};"
+      },
+      "id": "portfolio-analyze",
+      "name": "Analyze Portfolio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 850],
+      "connections": {
+        "portfolio-get-holdings": [
+          [{"node": "Analyze Portfolio", "type": "main", "index": 0}]
+        ],
+        "portfolio-get-account": [
+          [{"node": "Analyze Portfolio", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {"key": "x-api-key", "value": "={{ $env.ANTHROPIC_API_KEY }}"}
+        },
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": "{\n  \"model\": \"claude-opus-4-1\",\n  \"max_tokens\": 512,\n  \"messages\": [{\n    \"role\": \"user\",\n    \"content\": \"Analyze portfolio with total: £{{ $json.total_value }}, risk score: {{ $json.risk_score }}/10. Provide recommendations.\"\n  }]\n}"
+      },
+      "id": "portfolio-ai",
+      "name": "Portfolio AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1300, 850],
+      "connections": {
+        "portfolio-analyze": [
+          [{"node": "Portfolio AI", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const intent = $json.intent;\nlet response = '';\n\nif (intent === 'trading') {\n  response = `Trading Agent Response:\\n${$json.agent_response || 'Trade executed'}`;\n} else if (intent === 'analysis') {\n  response = `Technical Analysis:\\n${$json.agent_response || 'Analysis complete'}`;\n} else if (intent === 'portfolio') {\n  response = `Portfolio Analysis:\\n${$json.agent_response || 'Portfolio analyzed'}`;\n} else if (intent === 'market') {\n  response = `Market Data:\\n${$json.agent_response || 'Market data retrieved'}`;\n} else {\n  response = 'I can help you with trading, analysis, portfolio, or market data queries.';\n}\n\nreturn {\n  chat_id: $json.chat_id,\n  response: response,\n  user_id: $json.user_id\n};"
+      },
+      "id": "synthesize",
+      "name": "Synthesize Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, 100],
+      "connections": {
+        "trading-get-balance": [
+          [{"node": "Synthesize Response", "type": "main", "index": 0}]
+        ],
+        "trading-place-order": [
+          [{"node": "Synthesize Response", "type": "main", "index": 0}]
+        ],
+        "analysis-claude": [
+          [{"node": "Synthesize Response", "type": "main", "index": 0}]
+        ],
+        "market-get-news": [
+          [{"node": "Synthesize Response", "type": "main", "index": 0}]
+        ],
+        "portfolio-ai": [
+          [{"node": "Synthesize Response", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "chat_id", "value": "{{ $json.chat_id }}"},
+            {"name": "text", "value": "{{ $json.response }}"}
+          ]
+        }
+      },
+      "id": "send-telegram-response",
+      "name": "Send Telegram Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1700, 100],
+      "connections": {
+        "synthesize": [
+          [{"node": "Send Telegram Response", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "host": "{{ $env.DB_HOST }}",
+        "port": 5432,
+        "database": "{{ $env.DB_NAME }}",
+        "user": "{{ $env.DB_USER }}",
+        "password": "={{ $env.DB_PASSWORD }}",
+        "query": "INSERT INTO system_logs (user_id, intent, response, created_at) VALUES ({{ $json.user_id }}, '{{ $json.intent }}', '{{ $json.response }}', NOW())"
+      },
+      "id": "log-all",
+      "name": "Log All Activity",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 4.3,
+      "position": [1700, 250],
+      "connections": {
+        "send-telegram-response": [
+          [{"node": "Log All Activity", "type": "main", "index": 0}]
+        ]
+      }
+    }
+  ],
+  "connections": {},
+  "active": true,
+  "settings": {
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "tags": [
+    {"id": "complete", "name": "Complete System"},
+    {"id": "consolidated", "name": "Consolidated"},
+    {"id": "all-agents", "name": "All Agents"}
+  ]
+}
