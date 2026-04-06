@@ -1,0 +1,131 @@
+{
+  "name": "AGENT-TELEGRAM-GATEWAY",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "telegram-trigger-01",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse incoming message and prepare for orchestrator\nconst message = $json.text;\nconst userId = $json.from.id;\nconst chatId = $json.chat_id;\nconst username = $json.from.username || 'anonymous';\n\nreturn {\n  user_id: userId,\n  chat_id: chatId,\n  username: username,\n  message: message,\n  message_type: message.startsWith('/') ? 'command' : 'text',\n  timestamp: new Date().toISOString(),\n  first_name: $json.from.first_name\n};"
+      },
+      "id": "parse-message-02",
+      "name": "Parse Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "connections": {
+        "telegram-trigger-01": [
+          [
+            {
+              "node": "Parse Message",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5679/hook/main-orchestrator",
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": "{{ JSON.stringify($json) }}"
+      },
+      "id": "send-to-orchestrator-03",
+      "name": "Send to Orchestrator",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 300],
+      "connections": {
+        "parse-message-02": [
+          [
+            {
+              "node": "Send to Orchestrator",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "{{ $json.chat_id }}"
+            },
+            {
+              "name": "text",
+              "value": "{{ $json.response }}"
+            }
+          ]
+        }
+      },
+      "id": "send-response-04",
+      "name": "Send Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 300],
+      "connections": {
+        "send-to-orchestrator-03": [
+          [
+            {
+              "node": "Send Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "host": "{{ $env.DB_HOST }}",
+        "port": 5432,
+        "database": "{{ $env.DB_NAME }}",
+        "user": "{{ $env.DB_USER }}",
+        "password": "={{ $env.DB_PASSWORD }}",
+        "query": "INSERT INTO telegram_messages (user_id, username, message, response, created_at) VALUES ({{ $json.user_id }}, '{{ $json.username }}', '{{ $json.message }}', '{{ $json.response }}', NOW())"
+      },
+      "id": "log-message-05",
+      "name": "Log Message",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 4.3,
+      "position": [850, 450],
+      "connections": {
+        "send-response-04": [
+          [
+            {
+              "node": "Log Message",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  ],
+  "connections": {},
+  "active": true,
+  "settings": {
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "tags": [
+    {"id": "core", "name": "Core"},
+    {"id": "telegram", "name": "Telegram"},
+    {"id": "gateway", "name": "Gateway"}
+  ]
+}

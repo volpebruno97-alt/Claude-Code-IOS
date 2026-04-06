@@ -1,0 +1,228 @@
+{
+  "name": "AGENT-REALTIME-NEWS",
+  "description": "Real-time news alerts with sentiment analysis and portfolio impact scoring. Triggers on breaking news, analyzes relevance to your holdings, and alerts you immediately.",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "realtime-news-webhook",
+        "responseMode": "responseNode"
+      },
+      "id": "news-webhook-trigger",
+      "name": "News Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [100, 100],
+      "description": "Receives real-time news from Polygon.io or NewsAPI"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract and normalize news data from various sources\nconst data = $json;\n\nconst newsItem = {\n  ticker: data.ticker || data.symbol || 'UNKNOWN',\n  title: data.title || data.headline || '',\n  summary: data.summary || data.description || '',\n  source: data.source || data.publisher || 'Unknown',\n  url: data.url || data.link || '',\n  published_at: data.published_utc || data.publishedAt || new Date().toISOString(),\n  sentiment: data.sentiment || 'neutral',\n  relevance_score: data.relevance_score || 0.5,\n  raw_data: JSON.stringify(data)\n};\n\nreturn newsItem;"
+      },
+      "id": "parse-news",
+      "name": "Parse News",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [300, 100],
+      "connections": {
+        "news-webhook-trigger": [
+          [{"node": "Parse News", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://live.trading212.com/api/v0/portfolio",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {"key": "Authorization", "value": "Bearer {{ $env.TRADING212_API_KEY }}"}
+        }
+      },
+      "id": "get-portfolio",
+      "name": "Get Your Portfolio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [500, 100],
+      "connections": {
+        "parse-news": [
+          [{"node": "Get Your Portfolio", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if ticker is in user's portfolio\nconst ticker = $json.ticker;\nconst portfolio = $json.portfolio || [];\n\nconst holding = portfolio.find(h => h.ticker === ticker);\nconst in_portfolio = !!holding;\nconst shares_owned = holding ? holding.quantity : 0;\nconst position_value = holding ? holding.value : 0;\n\nreturn {\n  ...prev.$json,\n  in_portfolio: in_portfolio,\n  shares_owned: shares_owned,\n  position_value: position_value,\n  is_priority: in_portfolio ? 'HIGH' : 'MEDIUM'\n};"
+      },
+      "id": "check-portfolio",
+      "name": "Check Portfolio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 100],
+      "connections": {
+        "get-portfolio": [
+          [{"node": "Check Portfolio", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {"key": "x-api-key", "value": "={{ $env.ANTHROPIC_API_KEY }}"}
+        },
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": "{\n  \"model\": \"claude-opus-4-1\",\n  \"max_tokens\": 512,\n  \"messages\": [{\n    \"role\": \"user\",\n    \"content\": \"Analyze this breaking news for trading implications:\\n\\nTicker: {{ $json.ticker }}\\nTitle: {{ $json.title }}\\nSummary: {{ $json.summary }}\\nIn Portfolio: {{ $json.in_portfolio }}\\nShares Owned: {{ $json.shares_owned }}\\nPosition Value: £{{ $json.position_value }}\\n\\nProvide:\\n1. Impact Assessment (BULLISH/BEARISH/NEUTRAL with %)\\n2. Why (2-3 sentences)\\n3. Recommendation (BUY MORE/HOLD/SELL/MONITOR)\\n4. Risk Level (LOW/MEDIUM/HIGH)\\n5. Suggested Action Price (if applicable)\"\n  }]\n}"
+      },
+      "id": "claude-analyze",
+      "name": "Claude AI Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 100],
+      "connections": {
+        "check-portfolio": [
+          [{"node": "Claude AI Analysis", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract Claude's analysis\nconst analysis_text = $json.content[0].text;\nconst ticker = $json.ticker;\nconst in_portfolio = $json.in_portfolio;\n\n// Parse sentiment from analysis\nlet impact = 'NEUTRAL';\nlet recommendation = 'MONITOR';\nlet risk_level = 'MEDIUM';\n\nif (analysis_text.includes('BULLISH')) impact = 'BULLISH';\nif (analysis_text.includes('BEARISH')) impact = 'BEARISH';\nif (analysis_text.includes('BUY')) recommendation = 'BUY';\nif (analysis_text.includes('SELL')) recommendation = 'SELL';\nif (analysis_text.includes('HIGH')) risk_level = 'HIGH';\nif (analysis_text.includes('LOW')) risk_level = 'LOW';\n\nreturn {\n  ...prev.$json,\n  impact: impact,\n  recommendation: recommendation,\n  risk_level: risk_level,\n  analysis: analysis_text,\n  alert_priority: in_portfolio ? 'CRITICAL' : 'HIGH'\n};"
+      },
+      "id": "extract-analysis",
+      "name": "Extract Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 100],
+      "connections": {
+        "claude-analyze": [
+          [{"node": "Extract Analysis", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate alert message for Telegram\nconst data = $json;\nconst emoji = {\n  'BULLISH': '📈',\n  'BEARISH': '📉',\n  'NEUTRAL': '➡️'\n};\n\nconst priority_emoji = {\n  'CRITICAL': '🚨',\n  'HIGH': '⚠️'\n};\n\nconst message = `\n${priority_emoji[data.alert_priority] || '⚠️'} BREAKING NEWS ALERT\n\n${emoji[data.impact]} ${data.impact} | ${data.recommendation}\n\nTicker: ${data.ticker}\nTitle: ${data.title}\n\n📊 Analysis:\n${data.analysis}\n\nSource: ${data.source}\n🔗 Read: ${data.url}\n\nRisk Level: ${data.risk_level}\n${data.in_portfolio ? `Portfolio Position: ${data.shares_owned} shares (£${data.position_value})` : 'Not in your portfolio'}\n`;\n\nreturn {\n  ...data,\n  alert_message: message,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "format-alert",
+      "name": "Format Alert Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 100],
+      "connections": {
+        "extract-analysis": [
+          [{"node": "Format Alert Message", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "chat_id", "value": "{{ $env.TELEGRAM_USER_ID }}"},
+            {"name": "text", "value": "{{ $json.alert_message }}"},
+            {"name": "parse_mode", "value": "HTML"}
+          ]
+        }
+      },
+      "id": "send-telegram-alert",
+      "name": "Send Telegram Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1500, 100],
+      "connections": {
+        "format-alert": [
+          [{"node": "Send Telegram Alert", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "condition": "contains",
+              "value1": "{{ $json.recommendation }}",
+              "value2": "BUY"
+            }
+          ]
+        }
+      },
+      "id": "check-auto-trade",
+      "name": "Auto-Trade Enabled?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [1500, 300],
+      "connections": {
+        "send-telegram-alert": [
+          [{"node": "Auto-Trade Enabled?", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://live.trading212.com/api/v0/equity/orders/create",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {"key": "Authorization", "value": "Bearer {{ $env.TRADING212_API_KEY }}"}
+        },
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": "{\n  \"ticker\": \"{{ $json.ticker }}\",\n  \"quantity\": {{ $env.AUTO_TRADE_QUANTITY || 1 }},\n  \"side\": \"BUY\",\n  \"type\": \"MARKET\"\n}"
+      },
+      "id": "execute-trade",
+      "name": "Execute Auto Trade",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1700, 250],
+      "connections": {
+        "check-auto-trade": [
+          [{"node": "Execute Auto Trade", "type": "main", "index": 0}]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "host": "{{ $env.DB_HOST }}",
+        "port": 5432,
+        "database": "{{ $env.DB_NAME }}",
+        "user": "{{ $env.DB_USER }}",
+        "password": "={{ $env.DB_PASSWORD }}",
+        "query": "INSERT INTO news_alerts (ticker, title, impact, recommendation, risk_level, in_portfolio, analysis, auto_traded, created_at) VALUES ('{{ $json.ticker }}', '{{ $json.title }}', '{{ $json.impact }}', '{{ $json.recommendation }}', '{{ $json.risk_level }}', {{ $json.in_portfolio }}, '{{ $json.analysis }}', false, NOW())"
+      },
+      "id": "log-alert",
+      "name": "Log to Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 4.3,
+      "position": [1700, 450],
+      "connections": {
+        "send-telegram-alert": [
+          [{"node": "Log to Database", "type": "main", "index": 0}]
+        ],
+        "execute-trade": [
+          [{"node": "Log to Database", "type": "main", "index": 0}]
+        ]
+      }
+    }
+  ],
+  "connections": {},
+  "active": true,
+  "settings": {
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "tags": [
+    {"id": "realtime", "name": "Real-Time"},
+    {"id": "news", "name": "News"},
+    {"id": "alerts", "name": "Alerts"}
+  ]
+}

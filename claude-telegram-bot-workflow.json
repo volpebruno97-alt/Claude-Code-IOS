@@ -1,0 +1,328 @@
+{
+  "name": "Claude Telegram Bot",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1bc6a5d9-9e6f-4d1e-9f3c-5a8b9c2d3e4f",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ],
+      "webhookId": "{{ $env.TELEGRAM_WEBHOOK_ID }}"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "condition": "starts with",
+              "value1": "{{ $json.text }}",
+              "value2": "/start"
+            },
+            {
+              "condition": "starts with",
+              "value1": "{{ $json.text }}",
+              "value2": "/help"
+            },
+            {
+              "condition": "starts with",
+              "value1": "{{ $json.text }}",
+              "value2": "/clear"
+            }
+          ]
+        }
+      },
+      "id": "2cd7b6e0-0f7g-5e2f-0g4d-6b9c0d3e4f5g",
+      "name": "Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [
+        450,
+        300
+      ],
+      "connections": {
+        "1bc6a5d9-9e6f-4d1e-9f3c-5a8b9c2d3e4f": [
+          [
+            {
+              "node": "Switch",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "{{ $json.chat_id }}"
+            },
+            {
+              "name": "text",
+              "value": "👋 Welcome to Claude Code!\n\nI'm an AI assistant powered by Claude. Send me any message and I'll respond!\n\nCommands:\n/clear - Clear conversation history\n/help - Show this message"
+            }
+          ]
+        }
+      },
+      "id": "3de8c7f1-1h8h-6f3g-1h5e-7c0d1e4f5g6h",
+      "name": "Start Command",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        650,
+        150
+      ],
+      "connections": {
+        "2cd7b6e0-0f7g-5e2f-0g4d-6b9c0d3e4f5g": [
+          [
+            {
+              "node": "Start Command",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "{{ $json.chat_id }}"
+            },
+            {
+              "name": "text",
+              "value": "📚 Claude Code Bot Help\n\nJust send me any message and I'll respond using Claude AI.\n\nAvailable commands:\n/start - Start the bot\n/clear - Clear your conversation history\n/help - Show this help message\n\nI can help with:\n• General questions\n• Code explanations\n• Writing assistance\n• Problem solving\n• And much more!"
+            }
+          ]
+        }
+      },
+      "id": "4ef9d8g2-2i9i-7g4h-2i6f-8d1e2f5g6h7i",
+      "name": "Help Command",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        650,
+        300
+      ],
+      "connections": {
+        "2cd7b6e0-0f7g-5e2f-0g4d-6b9c0d3e4f5g": [
+          [
+            {
+              "node": "Help Command",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "{{ $json.chat_id }}"
+            },
+            {
+              "name": "text",
+              "value": "✅ Conversation history cleared!"
+            }
+          ]
+        }
+      },
+      "id": "5fg0e9h3-3j0j-8h5i-3j7g-9e2f3g6h7i8j",
+      "name": "Clear Command",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        650,
+        450
+      ],
+      "connections": {
+        "2cd7b6e0-0f7g-5e2f-0g4d-6b9c0d3e4f5g": [
+          [
+            {
+              "node": "Clear Command",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {
+            "key": "x-api-key",
+            "value": "={{ $env.ANTHROPIC_API_KEY }}"
+          }
+        },
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": "{\n  \"model\": \"claude-opus-4-1\",\n  \"max_tokens\": 2048,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.text }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "6gh1f0i4-4k1k-9i6j-4k8h-0f3g4h7i8j9k",
+      "name": "Claude API Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        450,
+        600
+      ],
+      "connections": {
+        "2cd7b6e0-0f7g-5e2f-0g4d-6b9c0d3e4f5g": [
+          [
+            {
+              "node": "Claude API Call",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract the response text from Claude\nconst claudeResponse = $json.content[0].text;\n\n// Handle long responses (Telegram limit: 4096 chars)\nif (claudeResponse.length > 4096) {\n  const messages = [];\n  for (let i = 0; i < claudeResponse.length; i += 4096) {\n    messages.push(claudeResponse.substring(i, i + 4096));\n  }\n  return { messages: messages, responseText: claudeResponse };\n} else {\n  return { messages: [claudeResponse], responseText: claudeResponse };\n}"
+      },
+      "id": "7hi2g1j5-5l2l-0j7k-5l9i-1g4h5i8j9k0l",
+      "name": "Parse Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        650,
+        600
+      ],
+      "connections": {
+        "6gh1f0i4-4k1k-9i6j-4k8h-0f3g4h7i8j9k": [
+          [
+            {
+              "node": "Parse Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "{{ $json.chat_id }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.messages[0] }}"
+            }
+          ]
+        }
+      },
+      "id": "8ij3h2k6-6m3m-1k8l-6m0j-2h5i6j9k0l1m",
+      "name": "Send Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        850,
+        600
+      ],
+      "connections": {
+        "7hi2g1j5-5l2l-0j7k-5l9i-1g4h5i8j9k0l": [
+          [
+            {
+              "node": "Send Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "host": "{{ $env.DB_HOST }}",
+        "port": 5432,
+        "database": "{{ $env.DB_NAME }}",
+        "user": "{{ $env.DB_USER }}",
+        "password": "={{ $env.DB_PASSWORD }}",
+        "ssl": false,
+        "query": "INSERT INTO conversations (user_id, username, user_message, claude_response, created_at) VALUES ({{ $json.from.id }}, '{{ $json.from.username }}', '{{ $json.text }}', '{{ $json.responseText }}', NOW())",
+        "queryType": "INSERT"
+      },
+      "id": "9jk4i3l7-7n4n-2l9m-7n1k-3i6j7k0l1m2n",
+      "name": "Log to Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 4.3,
+      "position": [
+        850,
+        750
+      ],
+      "connections": {
+        "8ij3h2k6-6m3m-1k8l-6m0j-2h5i6j9k0l1m": [
+          [
+            {
+              "node": "Log to Database",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  ],
+  "connections": {},
+  "active": true,
+  "settings": {
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionOrder": "v1"
+  },
+  "versionId": "8d47c0aa-8ac0-4c05-9c17-6a3c5f8e3b9f",
+  "meta": {
+    "instanceId": "{{ $env.N8N_INSTANCE_ID }}"
+  },
+  "tags": [
+    {
+      "id": "telegram",
+      "name": "Telegram"
+    },
+    {
+      "id": "claude",
+      "name": "Claude AI"
+    },
+    {
+      "id": "chatbot",
+      "name": "Chatbot"
+    }
+  ]
+}

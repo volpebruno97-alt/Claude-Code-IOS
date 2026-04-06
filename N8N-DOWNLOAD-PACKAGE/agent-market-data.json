@@ -1,0 +1,157 @@
+{
+  "name": "AGENT-MARKET-DATA",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "market-data-agent",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-trigger-01",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={{ $json.symbol }}&apikey={{ $env.ALPHA_VANTAGE_KEY }}"
+      },
+      "id": "get-current-price-02",
+      "name": "Get Current Price",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 200],
+      "connections": {
+        "webhook-trigger-01": [
+          [
+            {
+              "node": "Get Current Price",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://finnhub.io/api/v1/quote?symbol={{ $json.symbol }}&token={{ $env.FINNHUB_API_KEY }}"
+      },
+      "id": "get-market-data-03",
+      "name": "Get Market Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 350],
+      "connections": {
+        "webhook-trigger-01": [
+          [
+            {
+              "node": "Get Market Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://finnhub.io/api/v1/company-news?symbol={{ $json.symbol }}&min_id=0&token={{ $env.FINNHUB_API_KEY }}"
+      },
+      "id": "get-news-04",
+      "name": "Get News",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 500],
+      "connections": {
+        "webhook-trigger-01": [
+          [
+            {
+              "node": "Get News",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine market data from multiple sources\nconst priceData = $json[0];\nconst marketData = $json[1];\nconst newsData = $json[2];\n\nconst response = `\n📈 MARKET DATA - {{ $json.symbol }}\n\nPrice Information:\nCurrent: £${priceData.price}\n52-Week High: £${marketData.high52Week}\n52-Week Low: £${marketData.low52Week}\nChange: ${priceData.changePercent}%\n\nMarket Stats:\nVolume: ${marketData.volume}\nMarket Cap: ${marketData.marketCap}\n\nLatest News:\n${newsData.slice(0, 3).map(n => `• ${n.headline} (${n.datetime})`).join('\\n')}\n`;\n\nreturn {\n  agent: 'AGENT-MARKET-DATA',\n  agent_response: response,\n  symbol: '{{ $json.symbol }}',\n  price: priceData.price,\n  change_percent: priceData.changePercent,\n  news_count: newsData.length,\n  user_id: '{{ $json.user_id }}'\n};"
+      },
+      "id": "combine-data-05",
+      "name": "Combine Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 350],
+      "connections": {
+        "get-current-price-02": [
+          [
+            {
+              "node": "Combine Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ],
+        "get-market-data-03": [
+          [
+            {
+              "node": "Combine Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ],
+        "get-news-04": [
+          [
+            {
+              "node": "Combine Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "host": "{{ $env.DB_HOST }}",
+        "port": 5432,
+        "database": "{{ $env.DB_NAME }}",
+        "user": "{{ $env.DB_USER }}",
+        "password": "={{ $env.DB_PASSWORD }}",
+        "query": "INSERT INTO market_data (symbol, current_price, high_52w, low_52w, change_percent, created_at) VALUES ('{{ $json.symbol }}', {{ $json.price }}, {{ $json.high52 }}, {{ $json.low52 }}, {{ $json.change_percent }}, NOW())"
+      },
+      "id": "cache-data-06",
+      "name": "Cache Data",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 4.3,
+      "position": [850, 350],
+      "connections": {
+        "combine-data-05": [
+          [
+            {
+              "node": "Cache Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  ],
+  "connections": {},
+  "active": true,
+  "settings": {
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "tags": [
+    {"id": "market", "name": "Market"},
+    {"id": "data", "name": "Data"}
+  ]
+}
