@@ -1,0 +1,175 @@
+{
+  "name": "AGENT-PORTFOLIO-MANAGER",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "portfolio-manager-agent",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-trigger-01",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://live.trading212.com/api/v0/portfolio",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {
+            "key": "Authorization",
+            "value": "Bearer {{ $env.TRADING212_API_KEY }}"
+          }
+        }
+      },
+      "id": "get-holdings-02",
+      "name": "Get Holdings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 250],
+      "connections": {
+        "webhook-trigger-01": [
+          [
+            {
+              "node": "Get Holdings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://live.trading212.com/api/v0/account/info",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {
+            "key": "Authorization",
+            "value": "Bearer {{ $env.TRADING212_API_KEY }}"
+          }
+        }
+      },
+      "id": "get-account-03",
+      "name": "Get Account Info",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 400],
+      "connections": {
+        "webhook-trigger-01": [
+          [
+            {
+              "node": "Get Account Info",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Analyze portfolio composition and risk\nconst holdings = $json[0].portfolio || [];\nconst account = $json[1];\n\nconst total = account.total || 0;\nconst cash = account.cash || 0;\nconst invested = total - cash;\n\n// Calculate allocation\nconst stocks = holdings.length > 0 ? (invested / total) : 0;\nconst cashAlloc = cash / total;\n\n// Calculate risk score (0-10)\nconst riskScore = (stocks * 8 + (holdings.length / 10) * 2).toFixed(1);\n\n// Top holdings\nconst topHoldings = holdings\n  .sort((a, b) => b.value - a.value)\n  .slice(0, 5)\n  .map(h => `${h.ticker}: £${h.value.toFixed(2)} (${((h.value/invested)*100).toFixed(1)}%)`)\n  .join('\\n');\n\nconst analysis = `\n💼 PORTFOLIO ANALYSIS\n\nTotal Value: £${total.toFixed(2)}\nInvested: £${invested.toFixed(2)}\nCash: £${cash.toFixed(2)}\n\nAllocation:\nStocks: ${(stocks*100).toFixed(1)}%\nCash: ${(cashAlloc*100).toFixed(1)}%\n\nRisk Score: ${riskScore}/10\n\nTop Holdings:\n${topHoldings}\n\nHoldings Count: ${holdings.length}\n`;\n\nreturn {\n  agent: 'AGENT-PORTFOLIO-MANAGER',\n  agent_response: analysis,\n  total_value: total,\n  invested_value: invested,\n  cash: cash,\n  risk_score: riskScore,\n  holdings_count: holdings.length,\n  user_id: '{{ $json.user_id }}'\n};"
+      },
+      "id": "analyze-portfolio-04",
+      "name": "Analyze Portfolio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 325],
+      "connections": {
+        "get-holdings-02": [
+          [
+            {
+              "node": "Analyze Portfolio",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ],
+        "get-account-03": [
+          [
+            {
+              "node": "Analyze Portfolio",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericCredentials": {
+          "authenticationType": "httpHeaderAuth",
+          "genericAuth": {
+            "key": "x-api-key",
+            "value": "={{ $env.ANTHROPIC_API_KEY }}"
+          }
+        },
+        "sendBody": true,
+        "contentType": "application/json",
+        "body": "{\n  \"model\": \"claude-opus-4-1\",\n  \"max_tokens\": 512,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Analyze this portfolio and provide optimization suggestions:\\n\\nTotal Value: £{{ $json.total_value }}\\nInvested: £{{ $json.invested_value }}\\nCash: £{{ $json.cash }}\\nRisk Score: {{ $json.risk_score }}/10\\nHoldings: {{ $json.holdings_count }}\\n\\nProvide: Risk Assessment, Allocation Suggestion, Rebalancing Recommendation\"\n    }\n  ]\n}"
+      },
+      "id": "ai-recommendation-05",
+      "name": "AI Recommendation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 325],
+      "connections": {
+        "analyze-portfolio-04": [
+          [
+            {
+              "node": "AI Recommendation",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "host": "{{ $env.DB_HOST }}",
+        "port": 5432,
+        "database": "{{ $env.DB_NAME }}",
+        "user": "{{ $env.DB_USER }}",
+        "password": "={{ $env.DB_PASSWORD }}",
+        "query": "INSERT INTO portfolio_snapshots (total_value, invested_value, cash, risk_score, holdings_count, created_at) VALUES ({{ $json.total_value }}, {{ $json.invested_value }}, {{ $json.cash }}, {{ $json.risk_score }}, {{ $json.holdings_count }}, NOW())"
+      },
+      "id": "save-snapshot-06",
+      "name": "Save Snapshot",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 4.3,
+      "position": [850, 450],
+      "connections": {
+        "ai-recommendation-05": [
+          [
+            {
+              "node": "Save Snapshot",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    }
+  ],
+  "connections": {},
+  "active": true,
+  "settings": {
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "tags": [
+    {"id": "portfolio", "name": "Portfolio"},
+    {"id": "analysis", "name": "Analysis"}
+  ]
+}
