@@ -1,6 +1,7 @@
-# Claude Code iOS - Setup Guide
+# Claude Code Mobile - Setup Guide
 
-This project contains both a Python FastAPI backend and a native iOS app for accessing Claude AI.
+This project contains both a Python FastAPI backend and a React Native mobile app for accessing Claude AI.
+Develop on Windows and deploy to both iOS and Android!
 
 ## Project Structure
 
@@ -10,11 +11,20 @@ This project contains both a Python FastAPI backend and a native iOS app for acc
 │   ├── main.py             # Main FastAPI application
 │   ├── requirements.txt     # Python dependencies
 │   └── .env.example         # Environment variables template
-└── ios/                     # iOS application
-    └── ClaudeCodeIOS/       # SwiftUI app source code
-        ├── App.swift        # App entry point
-        ├── ContentView.swift # Main chat UI
-        └── ChatViewModel.swift # Chat logic and API calls
+└── mobile/                  # React Native mobile app
+    ├── src/
+    │   ├── App.tsx         # App entry point
+    │   ├── api/
+    │   │   └── client.ts   # API communication
+    │   ├── context/
+    │   │   └── ChatContext.tsx # State management
+    │   ├── screens/
+    │   │   └── ChatScreen.tsx  # Chat UI
+    │   └── components/
+    │       ├── MessageBubble.tsx
+    │       └── ChatHeader.tsx
+    ├── package.json
+    └── tsconfig.json
 ```
 
 ## Backend Setup
@@ -58,27 +68,65 @@ This project contains both a Python FastAPI backend and a native iOS app for acc
 
    The backend will be available at `http://localhost:8000`
 
-## iOS Setup
+## Mobile App Setup (React Native)
 
 ### Prerequisites
-- macOS with Xcode 15+
-- An iOS device or simulator running iOS 14+
+- Node.js 16+ and npm/yarn
+- React Native CLI: `npm install -g react-native-cli`
+- Java Development Kit (JDK) 11+ for Android
+- Android Studio and Android SDK for Android development
+- Xcode 14+ and CocoaPods for iOS development (on Mac)
 
-### Steps
+### Installation
 
-1. Open Xcode and create a new project:
-   - Product → New → Project
-   - Choose "App" template
-   - Set Product Name to "ClaudeCodeIOS"
-   - Choose SwiftUI for interface and Swift for language
+1. Navigate to the mobile directory:
+   ```bash
+   cd mobile
+   ```
 
-2. Copy the Swift files from `ios/ClaudeCodeIOS/` to your Xcode project
+2. Install dependencies:
+   ```bash
+   npm install
+   # or
+   yarn install
+   ```
 
-3. In the iOS app, configure the API base URL in `ChatViewModel.swift`:
-   - For development: `http://localhost:8000`
-   - For production: your actual backend URL
+3. Install native dependencies:
+   ```bash
+   npm install -g react-native-cli
+   ```
 
-4. Build and run the app (⌘R in Xcode)
+### Running the App
+
+#### On Android (Windows/Mac/Linux)
+```bash
+cd mobile
+npm run android
+```
+
+#### On iOS (Mac only)
+```bash
+cd mobile
+# Install pod dependencies first
+cd ios && pod install && cd ..
+npm run ios
+```
+
+#### Start the dev server
+```bash
+npm start
+```
+
+### Configuration
+
+Edit `src/api/client.ts` to change the backend URL:
+```typescript
+const API_BASE_URL = 'http://your-backend-url:8000';
+```
+
+For development on Windows, use your machine's IP address when testing on a physical device:
+- Get your IP: `ipconfig` (Windows)
+- Update in client.ts: `http://192.168.x.x:8000`
 
 ## API Endpoints
 

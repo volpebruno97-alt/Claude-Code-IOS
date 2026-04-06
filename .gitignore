@@ -8,12 +8,20 @@ backend/dist/
 backend/build/
 backend/*.egg-info/
 
-# iOS
-ios/ClaudeCodeIOS.xcodeproj/xcuserdata/
-ios/ClaudeCodeIOS.xcodeproj/project.xcworkspace/xcuserdata/
-ios/.DS_Store
-ios/DerivedData/
-ios/Build/
+# React Native / Mobile
+mobile/node_modules/
+mobile/build/
+mobile/dist/
+mobile/.env
+mobile/android/app/build/
+mobile/android/.gradle/
+mobile/ios/Pods/
+mobile/ios/Podfile.lock
+mobile/ios/*.xcworkspace/
+mobile/.watchman*
+mobile/npm-debug.log*
+mobile/yarn-debug.log*
+mobile/yarn-error.log*
 
 # IDE
 .vscode/
